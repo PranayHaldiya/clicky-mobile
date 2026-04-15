@@ -8,7 +8,7 @@ import React, {
   useState,
 } from "react";
 import { Audio } from "expo-av";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import { Alert, Linking, Platform } from "react-native";
 
 export type MessageRole = "user" | "assistant" | "system";
