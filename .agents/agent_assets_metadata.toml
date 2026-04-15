@@ -1,0 +1,8 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "pGrE4fGopjCkhNc9RFw7U"
+uri = "file://artifacts/clicky-mobile/assets/images/icon.png"
+type = "image"
+title = "generated_image"
