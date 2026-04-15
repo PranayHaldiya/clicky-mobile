@@ -4,6 +4,7 @@ import { Turbopuffer } from "@turbopuffer/turbopuffer";
 import type { Request, Response } from "express";
 import multer from "multer";
 import fs from "fs";
+import OpenAI from "openai";
 import { logger } from "../lib/logger";
 import { upsertSession, saveMessage, getSessionMessages, getSessions } from "../lib/db";
 
@@ -84,49 +85,41 @@ async function retrieveMemories(query: string, sessionId: string, topK = 5): Pro
   }
 }
 
-async function generateReply(message: string, memoryContext: string): Promise<string> {
-  const systemPrompt = `You are Clicky, a smart personal voice AI assistant. Be concise — max 2 short sentences for voice. Friendly and direct.${memoryContext ? "\n\nRelevant past context:\n" + memoryContext : ""}`;
-  const groqKey = process.env["GROQ_API_KEY"] ?? "";
-  if (groqKey) {
-    try {
-      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${groqKey}` },
-        body: JSON.stringify({
-          model: "llama-3.1-8b-instant",
-          messages: [{ role: "system", content: systemPrompt }, { role: "user", content: message }],
-          max_tokens: 150,
-          temperature: 0.7,
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json() as { choices: Array<{ message: { content: string } }> };
-        const reply = data.choices[0]?.message?.content?.trim();
-        if (reply) return reply;
-      }
-    } catch (err) {
-      logger.warn({ err }, "Groq failed, using fallback");
-    }
-  }
-  return generateFallbackReply(message);
-}
+const openai = new OpenAI({
+  baseURL: process.env["AI_INTEGRATIONS_OPENAI_BASE_URL"],
+  apiKey: process.env["AI_INTEGRATIONS_OPENAI_API_KEY"],
+});
 
-function generateFallbackReply(message: string): string {
-  const msg = message.toLowerCase().trim();
-  if (/^(hello|hi|hey|sup|yo)\b/.test(msg)) return "Hey! I'm Clicky, your personal AI assistant. What can I help you with?";
-  if (/how are you|how.s it going/.test(msg)) return "All good and ready to help! What's on your mind?";
-  if (/your name|who are you/.test(msg)) return "I'm Clicky — your AI assistant powered by ElevenLabs and Turbopuffer. Nice to meet you!";
-  if (/what time/.test(msg)) return `It's ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`;
-  if (/what.s the date|what day/.test(msg)) return `Today is ${new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}.`;
-  if (/weather/.test(msg)) return "I can't check real-time weather yet, but your phone's weather app has you covered!";
-  if (/thank/.test(msg)) return "You're welcome! Anything else I can help with?";
-  if (/help|what can you do/.test(msg)) return "I can answer questions, remember our conversations, and speak to you via ElevenLabs. Just ask!";
-  const fallbacks = [
-    "That's a great question! I'm still learning, but I'm here to help however I can.",
-    "Interesting! Tell me more and I'll do my best to assist you.",
-    "Got it. I'm always getting smarter — what else can I do for you?",
+async function generateReply(
+  message: string,
+  history: Array<{ role: string; content: string }>,
+  memoryContext: string
+): Promise<string> {
+  const systemPrompt = [
+    "You are Clicky, a sharp and knowledgeable personal voice AI assistant.",
+    "Answer questions directly and accurately. Be concise — 1 to 3 short sentences maximum since your response will be spoken aloud.",
+    "Never say 'that's interesting' or 'great question' — just answer. Be natural and conversational.",
+    "Today is " + new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" }) + ".",
+    memoryContext ? "\nRelevant memories from past conversations:\n" + memoryContext : "",
+  ].filter(Boolean).join(" ");
+
+  // Build messages: system + recent history + current message
+  const chatMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+    { role: "system", content: systemPrompt },
+    ...history.slice(-12).map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: m.content,
+    })),
+    { role: "user", content: message },
   ];
-  return fallbacks[Math.floor(Math.random() * fallbacks.length)]!;
+
+  const res = await openai.chat.completions.create({
+    model: "gpt-5-mini",
+    max_completion_tokens: 200,
+    messages: chatMessages,
+  });
+
+  return res.choices[0]?.message?.content?.trim() ?? "Sorry, I couldn't generate a response.";
 }
 
 // ─── Session routes ────────────────────────────────────────────────────────────
@@ -168,14 +161,21 @@ router.post("/chat", async (req: Request, res: Response) => {
     // Ensure session exists in DB
     await upsertSession(sessionId);
 
-    // Retrieve memories + save user message in parallel
-    const [memories] = await Promise.all([
+    // Retrieve memories + recent history + save user message in parallel
+    const [memories, rawHistory] = await Promise.all([
       retrieveMemories(message, sessionId),
+      getSessionMessages(sessionId, 12),
       saveMessage(generateId(), sessionId, "user", message),
       storeMemory(sessionId, "user", message),
     ]);
 
-    const reply = await generateReply(message, memories.join("\n"));
+    // rawHistory comes back newest-first; reverse so it's chronological
+    const history = rawHistory.reverse().map((m: { role: string; content: string }) => ({
+      role: m.role,
+      content: m.content,
+    }));
+
+    const reply = await generateReply(message, history, memories.join("\n"));
 
     // Save assistant reply (fire and forget)
     void saveMessage(generateId(), sessionId, "assistant", reply);

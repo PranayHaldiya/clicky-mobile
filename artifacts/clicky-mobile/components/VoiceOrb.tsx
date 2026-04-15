@@ -152,11 +152,11 @@ export function VoiceOrb({ status, onPress, size = 88 }: VoiceOrbProps) {
   const getOrbColor = () => {
     switch (status) {
       case "listening":
-        return "#FF4D6A";
-      case "thinking":
         return colors.primary;
-      case "speaking":
+      case "thinking":
         return colors.accent;
+      case "speaking":
+        return "#22C55E";
       default:
         return colors.primary;
     }
