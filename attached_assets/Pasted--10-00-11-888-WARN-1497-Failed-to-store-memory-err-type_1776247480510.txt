@@ -1,0 +1,122 @@
+[10:00:11.888] WARN (1497): Failed to store memory
+    err: {
+      "type": "TypeError",
+      "message": "ns.upsert is not a function",
+      "stack":
+          TypeError: ns.upsert is not a function
+              at storeMemory (/home/runner/workspace/artifacts/api-server/src/routes/assistant.ts:66:14)
+              at <anonymous> (/home/runner/workspace/artifacts/api-server/src/routes/assistant.ts:245:11)
+              at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    }
+[10:00:11.899] ERROR (1497): Chat error
+    err: {
+      "type": "TypeError",
+      "message": "elevenlabs.textToSpeech.stream is not a function",
+      "stack":
+          TypeError: elevenlabs.textToSpeech.stream is not a function
+              at <anonymous> (/home/runner/workspace/artifacts/api-server/src/routes/assistant.ts:247:53)
+              at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    }
+[10:00:11.902] INFO (1497): request errored
+    req: {
+      "id": 1,
+      "method": "POST",
+      "url": "/api/assistant/chat"
+    }
+    res: {
+      "statusCode": 500
+    }
+    responseTime: 330
+    err: {
+      "type": "Error",
+      "message": "failed with status code 500",
+      "stack":
+          Error: failed with status code 500
+              at onResFinished (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:115:39)
+              at ServerResponse.onResponseComplete (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:178:14)
+              at ServerResponse.emit (node:events:520:35)
+              at onFinish (node:_http_outgoing:1026:10)
+              at callback (node:internal/streams/writable:764:21)
+              at afterWrite (node:internal/streams/writable:708:5)
+              at afterWriteTick (node:internal/streams/writable:694:10)
+              at process.processTicksAndRejections (node:internal/process/task_queues:88:21)
+    }
+[10:01:58.850] WARN (1497): Failed to store memory
+    err: {
+      "type": "TypeError",
+      "message": "ns.upsert is not a function",
+      "stack":
+          TypeError: ns.upsert is not a function
+              at storeMemory (/home/runner/workspace/artifacts/api-server/src/routes/assistant.ts:66:14)
+              at <anonymous> (/home/runner/workspace/artifacts/api-server/src/routes/assistant.ts:236:7)
+              at Layer.handleRequest (/home/runner/workspace/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/layer.js:152:17)
+              at next (/home/runner/workspace/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/route.js:157:13)
+              at Route.dispatch (/home/runner/workspace/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/route.js:117:3)
+              at handle (/home/runner/workspace/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:435:11)
+              at Layer.handleRequest (/home/runner/workspace/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/layer.js:152:17)
+              at <anonymous> (/home/runner/workspace/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:295:15)
+              at processParams (/home/runner/workspace/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:582:12)
+              at next (/home/runner/workspace/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:291:5)
+    }
+[10:01:59.012] WARN (1497): Failed to retrieve memories
+    err: {
+      "type": "NotFoundError",
+      "message": "404 {\"error\":\"🤷 namespace 'clicky-memories' was not found\",\"status\":\"error\"}",
+      "stack":
+          Error: 404 {"error":"🤷 namespace 'clicky-memories' was not found","status":"error"}
+              at _APIError.generate (/home/runner/workspace/node_modules/.pnpm/@turbopuffer+turbopuffer@1.22.0/node_modules/@turbopuffer/turbopuffer/src/core/error.ts:72:14)
+              at Turbopuffer.makeStatusError (/home/runner/workspace/node_modules/.pnpm/@turbopuffer+turbopuffer@1.22.0/node_modules/@turbopuffer/turbopuffer/src/client.ts:379:28)
+              at Turbopuffer.makeRequest (/home/runner/workspace/node_modules/.pnpm/@turbopuffer+turbopuffer@1.22.0/node_modules/@turbopuffer/turbopuffer/src/client.ts:604:24)
+              at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+              at async retrieveMemories (/home/runner/workspace/artifacts/api-server/src/routes/assistant.ts:91:21)
+              at async Promise.all (index 0)
+              at async <anonymous> (/home/runner/workspace/artifacts/api-server/src/routes/assistant.ts:234:24)
+      "status": 404,
+      "headers": {},
+      "error": {
+        "error": "🤷 namespace 'clicky-memories' was not found",
+        "status": "error"
+      }
+    }
+[10:01:59.013] WARN (1497): Failed to store memory
+    err: {
+      "type": "TypeError",
+      "message": "ns.upsert is not a function",
+      "stack":
+          TypeError: ns.upsert is not a function
+              at storeMemory (/home/runner/workspace/artifacts/api-server/src/routes/assistant.ts:66:14)
+              at <anonymous> (/home/runner/workspace/artifacts/api-server/src/routes/assistant.ts:245:11)
+              at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    }
+[10:01:59.013] ERROR (1497): Chat error
+    err: {
+      "type": "TypeError",
+      "message": "elevenlabs.textToSpeech.stream is not a function",
+      "stack":
+          TypeError: elevenlabs.textToSpeech.stream is not a function
+              at <anonymous> (/home/runner/workspace/artifacts/api-server/src/routes/assistant.ts:247:53)
+              at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    }
+[10:01:59.014] INFO (1497): request errored
+    req: {
+      "id": 2,
+      "method": "POST",
+      "url": "/api/assistant/chat"
+    }
+    res: {
+      "statusCode": 500
+    }
+    responseTime: 165
+    err: {
+      "type": "Error",
+      "message": "failed with status code 500",
+      "stack":
+          Error: failed with status code 500
+              at onResFinished (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:115:39)
+              at ServerResponse.onResponseComplete (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:178:14)
+              at ServerResponse.emit (node:events:520:35)
+              at onFinish (node:_http_outgoing:1026:10)
+              at callback (node:internal/streams/writable:764:21)
+              at afterWrite (node:internal/streams/writable:708:5)
+              at afterWriteTick (node:internal/streams/writable:694:10)
+              at process.processTicksAndRejections (node:internal/process/task_queues:88:21)

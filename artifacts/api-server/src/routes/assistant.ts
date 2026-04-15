@@ -16,19 +16,9 @@ const tpuf = new Turbopuffer({
 });
 
 const NAMESPACE = "clicky-memories";
-const VOICE_ID = "JBFqnCBsd6RMkjVDRZzb";
+const VOICE_ID = "JBFqnCBsd6RMkjVDRZzb"; // George - ElevenLabs premade voice
 
-interface MemoryRecord {
-  id: string;
-  vector: number[];
-  attributes: {
-    text: string;
-    role: string;
-    sessionId: string;
-    timestamp: string;
-  };
-}
-
+// Simple bag-of-words embedding (128-dim, normalized) — no external API needed
 function simpleEmbedding(text: string): number[] {
   const dims = 128;
   const vec: number[] = new Array(dims).fill(0);
@@ -41,8 +31,7 @@ function simpleEmbedding(text: string): number[] {
         return h & h;
       }, 0) & 0x7fffffff;
     for (let i = 0; i < word.length; i++) {
-      const charCode = word.charCodeAt(i);
-      const idx = (charCode * (i + 1) * 31) % dims;
+      const idx = (word.charCodeAt(i) * (i + 1) * 31) % dims;
       vec[idx] = (vec[idx] ?? 0) + 1;
     }
     vec[wordHash % dims] = (vec[wordHash % dims] ?? 0) + 2;
@@ -53,6 +42,7 @@ function simpleEmbedding(text: string): number[] {
   return vec.map((v) => v / magnitude);
 }
 
+// Store a conversation turn in Turbopuffer
 async function storeMemory(
   sessionId: string,
   role: string,
@@ -60,60 +50,60 @@ async function storeMemory(
 ): Promise<void> {
   try {
     const ns = tpuf.namespace(NAMESPACE);
-    const embedding = simpleEmbedding(text);
+    const vector = simpleEmbedding(text);
     const id = `${sessionId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-    await ns.upsert({
-      vectors: [
-        {
-          id,
-          vector: embedding,
-          attributes: { text, role, sessionId, timestamp: new Date().toISOString() },
-        } as MemoryRecord,
-      ],
+    // Turbopuffer v2 API: write() with upsert_rows
+    // Row format: { id, vector, ...attributes as flat keys }
+    await ns.write({
+      upsert_rows: [{ id, vector, text, role, sessionId, timestamp: new Date().toISOString() }],
       distance_metric: "cosine_distance",
     });
-    logger.info({ sessionId, role, chars: text.length }, "Memory stored");
+
+    logger.info({ sessionId, role, chars: text.length }, "Memory stored in turbopuffer");
   } catch (err) {
     logger.warn({ err }, "Failed to store memory");
   }
 }
 
+// Retrieve relevant memories from Turbopuffer using ANN search
 async function retrieveMemories(
   query: string,
   sessionId: string,
-  limit = 5
+  topK = 5
 ): Promise<string[]> {
   try {
     const ns = tpuf.namespace(NAMESPACE);
     const embedding = simpleEmbedding(query);
 
+    // Turbopuffer v2 API: query() with rank_by for ANN vector search
     const results = await ns.query({
-      vector: embedding,
-      top_k: limit,
+      rank_by: ["vector", "ANN", embedding],
+      top_k: topK,
       distance_metric: "cosine_distance",
-      filters: { sessionId: ["Eq", sessionId] },
+      filters: ["sessionId", "Eq", sessionId],
       include_attributes: ["text", "role", "timestamp"],
     });
 
-    return (results ?? [])
-      .filter((r) => ((r as { dist?: number }).dist ?? 1) < 0.8)
-      .map((r) => {
-        const attrs = r.attributes as { text?: string; role?: string } | undefined;
-        return `[${attrs?.role ?? "unknown"}]: ${attrs?.text ?? ""}`;
-      });
+    const rows = (results as { rows?: Array<{ $dist?: number; text?: string; role?: string }> }).rows ?? [];
+    return rows
+      .filter((r) => (r.$dist ?? 1) < 0.85)
+      .map((r) => `[${r.role ?? "unknown"}]: ${r.text ?? ""}`);
   } catch (err) {
+    const errMsg = String(err);
+    // Namespace not found on first use — that's fine, it gets created on first write
+    if (errMsg.includes("not found") || errMsg.includes("404")) {
+      return [];
+    }
     logger.warn({ err }, "Failed to retrieve memories");
     return [];
   }
 }
 
-async function generateReply(
-  message: string,
-  memoryContext: string
-): Promise<string> {
-  const systemPrompt = `You are Clicky, a smart personal AI assistant on mobile. Be concise — max 2 sentences for voice. ${
-    memoryContext ? "Past context:\n" + memoryContext : ""
+// Generate a reply using Groq (if key available) or smart fallback
+async function generateReply(message: string, memoryContext: string): Promise<string> {
+  const systemPrompt = `You are Clicky, a smart personal AI assistant on mobile. Be concise — max 2 short sentences for voice. Friendly and direct.${
+    memoryContext ? "\n\nRelevant past context:\n" + memoryContext : ""
   }`;
 
   const groqKey = process.env["GROQ_API_KEY"] ?? "";
@@ -135,16 +125,13 @@ async function generateReply(
           temperature: 0.7,
         }),
       });
-
       if (res.ok) {
-        const data = await res.json() as {
-          choices: Array<{ message: { content: string } }>;
-        };
+        const data = await res.json() as { choices: Array<{ message: { content: string } }> };
         const reply = data.choices[0]?.message?.content?.trim();
         if (reply) return reply;
       }
     } catch (err) {
-      logger.warn({ err }, "Groq API call failed, using fallback");
+      logger.warn({ err }, "Groq API failed, using fallback");
     }
   }
 
@@ -154,64 +141,49 @@ async function generateReply(
 function generateFallbackReply(message: string): string {
   const msg = message.toLowerCase().trim();
 
-  if (/^(hello|hi|hey|sup|yo)/.test(msg)) {
+  if (/^(hello|hi|hey|sup|yo)\b/.test(msg))
     return "Hey! I'm Clicky, your AI assistant. What can I help you with?";
-  }
-  if (/how are you|how.s it going|what.s up/.test(msg)) {
+  if (/how are you|how.s it going|what.s up/.test(msg))
     return "All good and ready to help! What's on your mind?";
-  }
-  if (/your name|who are you/.test(msg)) {
-    return "I'm Clicky — your personal AI assistant built for ElevenHacks. Nice to meet you!";
-  }
-  if (/what time|what.s the time/.test(msg)) {
+  if (/your name|who are you/.test(msg))
+    return "I'm Clicky — your personal AI assistant powered by ElevenLabs and Turbopuffer. Nice to meet you!";
+  if (/what time/.test(msg))
     return `It's ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`;
-  }
-  if (/what.s the date|what day/.test(msg)) {
+  if (/what.s the date|what day/.test(msg))
     return `Today is ${new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}.`;
-  }
-  if (/weather/.test(msg)) {
-    return "I can't check real-time weather right now, but you can ask your device's weather app!";
-  }
-  if (/thank/.test(msg)) {
+  if (/weather/.test(msg))
+    return "I can't check real-time weather yet, but your phone's weather app has you covered!";
+  if (/thank/.test(msg))
     return "You're welcome! Anything else I can help with?";
-  }
-  if (/help|what can you do/.test(msg)) {
-    return "I can answer questions, remember our conversations, and help you think things through. Just ask!";
-  }
-  if (/remember|memory|last time/.test(msg)) {
-    return "I store our conversations using Turbopuffer vector memory so I can recall them later. Ask me about something specific!";
-  }
-  if (/elevenlabs|voice|speech/.test(msg)) {
-    return "My voice is powered by ElevenLabs — one of the best text-to-speech AI systems out there!";
-  }
+  if (/help|what can you do/.test(msg))
+    return "I can answer questions, remember our conversations using Turbopuffer, and speak to you via ElevenLabs. Just ask!";
+  if (/memory|remember|last time/.test(msg))
+    return "I store our conversations as vectors in Turbopuffer so I can recall them later. Try asking me something we've talked about!";
 
-  const responses = [
-    `Great question! "${message.slice(0, 40)}..." I'm still expanding my knowledge, but I'm here to help.`,
-    "That's interesting! Tell me more and I'll do my best to assist you.",
-    "I heard you! I'm always getting smarter. For now, I'm ready to help with anything I can.",
-    "Good thinking! I'll remember that for our future conversations.",
+  const fallbacks = [
+    "That's a great question! I'm still learning, but I'm here to help however I can.",
+    "Interesting! Tell me more and I'll do my best to assist you.",
+    "Got it. I'm always getting smarter — what else can I do for you?",
   ];
-  return responses[Math.floor(Math.random() * responses.length)] ?? responses[0]!;
+  return fallbacks[Math.floor(Math.random() * fallbacks.length)] ?? fallbacks[0]!;
 }
 
+// GET /api/assistant/agent-config
 router.get("/agent-config", (_req: Request, res: Response) => {
   const agentId = process.env["ELEVENLABS_AGENT_ID"] ?? "";
   res.json({ agentId, hasAgentId: !!agentId });
 });
 
+// POST /api/assistant/signed-url — get ElevenLabs Conversational AI signed URL
 router.post("/signed-url", async (req: Request, res: Response) => {
   try {
     const agentId = process.env["ELEVENLABS_AGENT_ID"] ?? "";
     const targetId = (req.body as { agentId?: string }).agentId ?? agentId;
-
     if (!targetId) {
-      res.status(400).json({ error: "No ElevenLabs agent ID configured." });
+      res.status(400).json({ error: "No ElevenLabs agent ID configured (set ELEVENLABS_AGENT_ID)." });
       return;
     }
-
-    const result = await elevenlabs.conversationalAi.getSignedUrl({
-      agent_id: targetId,
-    });
+    const result = await elevenlabs.conversationalAi.getSignedUrl({ agent_id: targetId });
     res.json({ signedUrl: result.signed_url });
   } catch (err) {
     logger.error({ err }, "Failed to get signed URL");
@@ -219,32 +191,30 @@ router.post("/signed-url", async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/assistant/chat — main chat endpoint: returns TTS audio stream + text reply header
 router.post("/chat", async (req: Request, res: Response) => {
   try {
-    const { message, sessionId } = req.body as {
-      message?: string;
-      sessionId?: string;
-    };
+    const { message, sessionId } = req.body as { message?: string; sessionId?: string };
 
     if (!message || !sessionId) {
       res.status(400).json({ error: "message and sessionId are required" });
       return;
     }
 
+    // Retrieve relevant past memories + store user message concurrently
     const [memories] = await Promise.all([
       retrieveMemories(message, sessionId),
       storeMemory(sessionId, "user", message),
     ]);
 
-    const memoryContext = memories.length > 0
-      ? memories.join("\n")
-      : "";
-
+    const memoryContext = memories.join("\n");
     const reply = await generateReply(message, memoryContext);
 
-    await storeMemory(sessionId, "assistant", reply);
+    // Store assistant reply in memory (don't await — fire and forget)
+    void storeMemory(sessionId, "assistant", reply);
 
-    const ttsStream = await elevenlabs.textToSpeech.stream(VOICE_ID, {
+    // Stream ElevenLabs TTS audio back — use convertAsStream (correct v1.59 method)
+    const ttsStream = await elevenlabs.textToSpeech.convertAsStream(VOICE_ID, {
       text: reply,
       model_id: "eleven_turbo_v2_5",
       output_format: "mp3_44100_128",
@@ -271,18 +241,14 @@ router.post("/chat", async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/assistant/memories — query Turbopuffer memories
 router.post("/memories", async (req: Request, res: Response) => {
   try {
-    const { query, sessionId } = req.body as {
-      query?: string;
-      sessionId?: string;
-    };
-
+    const { query, sessionId } = req.body as { query?: string; sessionId?: string };
     if (!query || !sessionId) {
-      res.status(400).json({ error: "query and sessionId required" });
+      res.status(400).json({ error: "query and sessionId are required" });
       return;
     }
-
     const memories = await retrieveMemories(query, sessionId);
     res.json({ memories });
   } catch (err) {
@@ -291,6 +257,7 @@ router.post("/memories", async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/assistant/tts — standalone TTS endpoint
 router.post("/tts", async (req: Request, res: Response) => {
   try {
     const { text, voiceId } = req.body as { text?: string; voiceId?: string };
@@ -299,7 +266,7 @@ router.post("/tts", async (req: Request, res: Response) => {
       return;
     }
 
-    const stream = await elevenlabs.textToSpeech.stream(voiceId ?? VOICE_ID, {
+    const stream = await elevenlabs.textToSpeech.convertAsStream(voiceId ?? VOICE_ID, {
       text,
       model_id: "eleven_turbo_v2_5",
       output_format: "mp3_44100_128",
