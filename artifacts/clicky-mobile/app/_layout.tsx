@@ -31,8 +31,10 @@ function RootLayoutNav() {
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" options={{ headerShown: false }} />
       </Stack>
-      {/* Global floating Clicky overlay — visible on every screen */}
-      <ClickyOverlay />
+      {/* Global floating Clicky overlay — sits above every screen */}
+      <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, elevation: 20 }} pointerEvents="box-none">
+        <ClickyOverlay />
+      </View>
     </View>
   );
 }
