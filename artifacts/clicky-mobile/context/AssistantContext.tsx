@@ -39,6 +39,7 @@ interface AssistantContextValue {
   currentTranscript: string;
   lastReply: string;
   hasMicPermission: boolean;
+  audioLevel: number; // 0–1, live mic level during recording
 }
 
 const AssistantContext = createContext<AssistantContextValue | null>(null);
@@ -46,6 +47,11 @@ const AssistantContext = createContext<AssistantContextValue | null>(null);
 const SESSION_KEY = "clicky_session_id";
 const MESSAGES_KEY = "clicky_messages";
 const MAX_MESSAGES = 50;
+
+// Silence detection tuning
+const SILENCE_THRESHOLD_DB = -45;   // dBFS — below this = silence
+const SILENCE_FRAMES_NEEDED = 14;   // × 100ms = ~1.4s of silence → auto-stop
+const MIN_RECORDING_FRAMES = 8;     // don't auto-stop in first 0.8s
 
 function generateId(): string {
   return Date.now().toString() + Math.random().toString(36).substr(2, 9);
@@ -61,9 +67,13 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   const [currentTranscript, setCurrentTranscript] = useState("");
   const [lastReply, setLastReply] = useState("");
   const [hasMicPermission, setHasMicPermission] = useState(false);
+  const [audioLevel, setAudioLevel] = useState(0);
 
   const soundRef = useRef<Audio.Sound | null>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
+  const silenceFramesRef = useRef(0);
+  const totalFramesRef = useRef(0);
+  const autoStopCalledRef = useRef(false);
 
   // ── Request microphone permission ──────────────────────────────────────────
   const requestMicPermission = useCallback(async (): Promise<boolean> => {
@@ -97,7 +107,6 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   // ── Init: session + stored messages + permissions ──────────────────────────
   useEffect(() => {
     const init = async () => {
-      // Configure audio playback mode
       if (Platform.OS !== "web") {
         await Audio.setAudioModeAsync({
           allowsRecordingIOS: false,
@@ -105,8 +114,6 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
           shouldDuckAndroid: true,
           playThroughEarpieceAndroid: false,
         });
-
-        // Check mic permission status (don't prompt yet — wait for first use)
         const { granted } = await Audio.getPermissionsAsync();
         setHasMicPermission(granted);
       } else {
@@ -196,9 +203,9 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     addMessage("user", text);
     setStatus("thinking");
     setCurrentTranscript("");
+    setAudioLevel(0);
 
     try {
-      // Step 1: Text reply
       const chatRes = await fetch(`${BASE_URL}/api/assistant/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -211,7 +218,6 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       setLastReply(reply);
       setStatus("speaking");
 
-      // Step 2: TTS audio
       const ttsRes = await fetch(`${BASE_URL}/api/assistant/tts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -241,7 +247,9 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     }
   }, [sessionId, addMessage, playAudioBlob, playAudioFromUri]);
 
-  // ── Native recording helpers ───────────────────────────────────────────────
+  // ── Native recording ───────────────────────────────────────────────────────
+  const stopNativeRecordingRef = useRef<(() => Promise<void>) | null>(null);
+
   const startNativeRecording = useCallback(async () => {
     try {
       await Audio.setAudioModeAsync({
@@ -250,29 +258,67 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         shouldDuckAndroid: true,
         playThroughEarpieceAndroid: false,
       });
-      const { recording } = await Audio.Recording.createAsync({
-        android: {
-          extension: ".m4a",
-          outputFormat: Audio.AndroidOutputFormat.MPEG_4,
-          audioEncoder: Audio.AndroidAudioEncoder.AAC,
-          sampleRate: 44100,
-          numberOfChannels: 1,
-          bitRate: 96000,
-        },
-        ios: {
-          extension: ".m4a",
-          outputFormat: Audio.IOSOutputFormat.MPEG4AAC,
-          audioQuality: Audio.IOSAudioQuality.HIGH,
-          sampleRate: 44100,
-          numberOfChannels: 1,
-          bitRate: 96000,
-          linearPCMBitDepth: 16,
-          linearPCMIsBigEndian: false,
-          linearPCMIsFloat: false,
-        },
-        web: { mimeType: "audio/webm", bitsPerSecond: 96000 },
-      });
+
+      const { recording } = await Audio.Recording.createAsync(
+        {
+          android: {
+            extension: ".m4a",
+            outputFormat: Audio.AndroidOutputFormat.MPEG_4,
+            audioEncoder: Audio.AndroidAudioEncoder.AAC,
+            sampleRate: 44100,
+            numberOfChannels: 1,
+            bitRate: 96000,
+          },
+          ios: {
+            extension: ".m4a",
+            outputFormat: Audio.IOSOutputFormat.MPEG4AAC,
+            audioQuality: Audio.IOSAudioQuality.HIGH,
+            sampleRate: 44100,
+            numberOfChannels: 1,
+            bitRate: 96000,
+            linearPCMBitDepth: 16,
+            linearPCMIsBigEndian: false,
+            linearPCMIsFloat: false,
+          },
+          web: { mimeType: "audio/webm", bitsPerSecond: 96000 },
+          isMeteringEnabled: true,
+        }
+      );
+
       recordingRef.current = recording;
+      silenceFramesRef.current = 0;
+      totalFramesRef.current = 0;
+      autoStopCalledRef.current = false;
+
+      // 100ms status updates — gives us metering + silence detection
+      recording.setProgressUpdateInterval(100);
+      recording.setOnRecordingStatusUpdate((s) => {
+        if (!s.isRecording) return;
+
+        totalFramesRef.current += 1;
+
+        // Live audio level (normalize dBFS -60..0 → 0..1)
+        const db = s.metering ?? -160;
+        const normalized = Math.min(1, Math.max(0, (db + 60) / 60));
+        setAudioLevel(normalized);
+
+        // Silence detection — only after minimum recording window
+        if (totalFramesRef.current >= MIN_RECORDING_FRAMES) {
+          if (db < SILENCE_THRESHOLD_DB) {
+            silenceFramesRef.current += 1;
+          } else {
+            silenceFramesRef.current = 0;
+          }
+
+          if (
+            silenceFramesRef.current >= SILENCE_FRAMES_NEEDED &&
+            !autoStopCalledRef.current
+          ) {
+            autoStopCalledRef.current = true;
+            stopNativeRecordingRef.current?.().catch(console.error);
+          }
+        }
+      });
     } catch (err) {
       console.error("Failed to start recording:", err);
       setIsRecording(false);
@@ -284,6 +330,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     const recording = recordingRef.current;
     if (!recording) return;
     recordingRef.current = null;
+    setAudioLevel(0);
 
     try {
       await recording.stopAndUnloadAsync();
@@ -292,8 +339,6 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
 
       setStatus("thinking");
 
-      // Upload audio to ElevenLabs STT via our backend
-      // React Native FormData supports { uri, name, type } object for file uploads
       const formData = new FormData();
       formData.append("audio", {
         uri,
@@ -316,7 +361,6 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         setStatus("idle");
       }
 
-      // Clean up recording file
       await FileSystem.deleteAsync(uri, { idempotent: true });
     } catch (err) {
       console.error("Recording error:", err);
@@ -326,12 +370,16 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     }
   }, [sendMessage, addMessage]);
 
-  // ── startListening: web uses SpeechRecognition, native uses expo-av ────────
+  // Keep stopNativeRecordingRef in sync for the metering callback
+  useEffect(() => {
+    stopNativeRecordingRef.current = stopNativeRecording;
+  }, [stopNativeRecording]);
+
+  // ── startListening ─────────────────────────────────────────────────────────
   const startListening = useCallback(async () => {
     if (status !== "idle") return;
 
     if (Platform.OS === "web") {
-      // Web: webkitSpeechRecognition
       if (typeof window === "undefined" || !("webkitSpeechRecognition" in window)) return;
       setIsRecording(true);
       setStatus("listening");
@@ -360,7 +408,6 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       recognition.start();
       (window as unknown as Record<string, unknown>)["_clickyRec"] = recognition;
     } else {
-      // Native: request mic permission then start expo-av recording
       const granted = hasMicPermission || await requestMicPermission();
       if (!granted) return;
 
@@ -409,6 +456,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       currentTranscript,
       lastReply,
       hasMicPermission,
+      audioLevel,
     }}>
       {children}
     </AssistantContext.Provider>

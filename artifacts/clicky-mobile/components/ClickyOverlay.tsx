@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef } from "react";
 import {
   Animated,
   Easing,
@@ -11,6 +11,53 @@ import { Ionicons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { useAssistant } from "@/context/AssistantContext";
 
+const NUM_BARS = 5;
+
+function AudioBars({ level, color }: { level: number; color: string }) {
+  // Each bar has a different multiplier so they animate at different heights
+  const multipliers = [0.5, 0.8, 1.0, 0.8, 0.5];
+  const anims = useRef(multipliers.map(() => new Animated.Value(0.15))).current;
+  const rafRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    if (rafRef.current) clearTimeout(rafRef.current);
+    const targets = multipliers.map((m) => Math.max(0.15, level * m + Math.random() * 0.08));
+    const animations = anims.map((anim, i) =>
+      Animated.timing(anim, {
+        toValue: targets[i] ?? 0.15,
+        duration: 80,
+        useNativeDriver: false,
+        easing: Easing.out(Easing.ease),
+      })
+    );
+    Animated.parallel(animations).start();
+    // jitter: re-animate every 120ms while recording
+    if (level > 0.05) {
+      rafRef.current = setTimeout(() => {}, 120);
+    }
+  }, [level]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <View style={styles.barsContainer}>
+      {anims.map((anim, i) => (
+        <Animated.View
+          key={i}
+          style={[
+            styles.bar,
+            {
+              backgroundColor: color,
+              height: anim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [4, 36],
+              }),
+            },
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
+
 export function ClickyOverlay() {
   const colors = useColors();
   const {
@@ -21,39 +68,42 @@ export function ClickyOverlay() {
     currentTranscript,
     lastReply,
     hasMicPermission,
+    audioLevel,
   } = useAssistant();
 
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = React.useState(false);
 
-  // Animations
   const slideAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
+  const fabRotAnim = useRef(new Animated.Value(0)).current;
 
-  // Pulse when listening
+  // Pulse the orb ring when listening
   useEffect(() => {
     if (status === "listening") {
       const loop = Animated.loop(
         Animated.sequence([
-          Animated.timing(pulseAnim, { toValue: 1.2, duration: 650, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
-          Animated.timing(pulseAnim, { toValue: 1.0, duration: 650, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+          Animated.timing(pulseAnim, { toValue: 1.18, duration: 700, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+          Animated.timing(pulseAnim, { toValue: 1.0, duration: 700, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
         ])
       );
       loop.start();
       return () => loop.stop();
     } else {
-      pulseAnim.setValue(1);
+      Animated.timing(pulseAnim, { toValue: 1, duration: 200, useNativeDriver: true }).start();
     }
   }, [status, pulseAnim]);
 
   const openOverlay = useCallback(() => {
     setOpen(true);
     Animated.spring(slideAnim, { toValue: 1, useNativeDriver: true, tension: 65, friction: 10 }).start();
-  }, [slideAnim]);
+    Animated.timing(fabRotAnim, { toValue: 1, duration: 250, useNativeDriver: true }).start();
+  }, [slideAnim, fabRotAnim]);
 
   const closeOverlay = useCallback(() => {
     if (status === "listening") stopListening();
     Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, bounciness: 0 }).start(() => setOpen(false));
-  }, [slideAnim, status, stopListening]);
+    Animated.timing(fabRotAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start();
+  }, [slideAnim, fabRotAnim, status, stopListening]);
 
   const handleOrbPress = useCallback(() => {
     if (status === "listening" || isRecording) {
@@ -63,7 +113,7 @@ export function ClickyOverlay() {
     }
   }, [status, isRecording, startListening, stopListening]);
 
-  const panelTranslate = slideAnim.interpolate({ inputRange: [0, 1], outputRange: [320, 0] });
+  const panelTranslate = slideAnim.interpolate({ inputRange: [0, 1], outputRange: [340, 0] });
 
   const orbBg =
     status === "listening" ? colors.primary :
@@ -72,14 +122,18 @@ export function ClickyOverlay() {
     colors.surfaceHigh;
 
   const statusLabel =
-    status === "listening" ? "Listening..." :
+    status === "listening" ? "Listening — stop speaking to send" :
     status === "thinking" ? "Thinking..." :
     status === "speaking" ? "Speaking..." :
-    hasMicPermission ? "Tap mic to speak" : "Tap mic (needs permission)";
+    hasMicPermission ? "Tap mic to speak" : "Tap to allow microphone";
+
+  const showBars = status === "listening";
+  const showTranscript = !!currentTranscript && status !== "listening";
+  const showReply = !!lastReply && status !== "listening";
 
   return (
     <>
-      {/* Floating action button */}
+      {/* FAB */}
       {!open && (
         <View style={styles.fab}>
           <TouchableOpacity
@@ -92,7 +146,7 @@ export function ClickyOverlay() {
         </View>
       )}
 
-      {/* Slide-up overlay panel */}
+      {/* Slide-up panel */}
       {open && (
         <Animated.View
           style={[
@@ -116,39 +170,65 @@ export function ClickyOverlay() {
                 <Ionicons name="sparkles" size={12} color="#fff" />
               </View>
               <Text style={[styles.title, { color: colors.foreground }]}>Clicky</Text>
-              <Text style={[styles.statusText, { color: colors.mutedForeground }]}>{statusLabel}</Text>
             </View>
             <TouchableOpacity onPress={closeOverlay} style={[styles.closeBtn, { backgroundColor: colors.surfaceHigh }]}>
               <Ionicons name="chevron-down" size={16} color={colors.mutedForeground} />
             </TouchableOpacity>
           </View>
 
-          {/* Content area */}
+          {/* Content */}
           <View style={styles.content}>
-            {/* User transcript */}
-            {currentTranscript ? (
+            {/* Live audio bars while recording */}
+            {showBars && (
+              <View style={styles.listeningBlock}>
+                <AudioBars level={audioLevel} color={colors.primary} />
+                <Text style={[styles.listeningHint, { color: colors.mutedForeground }]}>
+                  Stop speaking and it will auto-send
+                </Text>
+              </View>
+            )}
+
+            {/* Transcript after recording */}
+            {showTranscript && (
               <View style={[styles.transcriptBubble, { backgroundColor: colors.primary + "22" }]}>
                 <Text style={[styles.transcriptText, { color: colors.mutedForeground }]} numberOfLines={2}>
                   "{currentTranscript}"
                 </Text>
               </View>
-            ) : null}
+            )}
 
             {/* AI response */}
-            {lastReply ? (
+            {showReply && (
               <Text style={[styles.replyText, { color: colors.foreground }]} numberOfLines={5}>
                 {lastReply}
               </Text>
-            ) : !currentTranscript ? (
+            )}
+
+            {/* Idle hint */}
+            {!showBars && !showTranscript && !showReply && status === "idle" && (
               <Text style={[styles.hintText, { color: colors.mutedForeground }]}>
                 Ask me anything — I'm here to help
               </Text>
-            ) : null}
+            )}
+
+            {/* Thinking/speaking label */}
+            {(status === "thinking" || status === "speaking") && !showReply && (
+              <Text style={[styles.hintText, { color: colors.mutedForeground }]}>
+                {status === "thinking" ? "Processing your message..." : "Playing response..."}
+              </Text>
+            )}
           </View>
+
+          {/* Status label */}
+          <Text style={[styles.statusLabel, { color: colors.mutedForeground }]}>{statusLabel}</Text>
 
           {/* Voice orb */}
           <View style={styles.orbRow}>
-            <TouchableOpacity onPress={handleOrbPress} activeOpacity={0.85} disabled={status === "thinking" || status === "speaking"}>
+            <TouchableOpacity
+              onPress={handleOrbPress}
+              activeOpacity={0.85}
+              disabled={status === "thinking" || status === "speaking"}
+            >
               <Animated.View
                 style={[
                   styles.orbOuter,
@@ -167,7 +247,7 @@ export function ClickyOverlay() {
                       status === "speaking" ? "volume-high" :
                       "mic"
                     }
-                    size={26}
+                    size={28}
                     color="#fff"
                   />
                 </View>
@@ -210,7 +290,7 @@ const styles = StyleSheet.create({
     borderLeftWidth: 1,
     borderRightWidth: 1,
     paddingHorizontal: 20,
-    paddingBottom: 40,
+    paddingBottom: 44,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: -6 },
     shadowOpacity: 0.3,
@@ -250,11 +330,6 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     letterSpacing: -0.3,
   },
-  statusText: {
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-    marginLeft: 2,
-  },
   closeBtn: {
     width: 28,
     height: 28,
@@ -263,10 +338,29 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   content: {
-    minHeight: 80,
-    marginBottom: 20,
+    minHeight: 90,
+    marginBottom: 8,
     gap: 10,
     justifyContent: "center",
+  },
+  listeningBlock: {
+    alignItems: "center",
+    gap: 10,
+  },
+  barsContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    height: 40,
+  },
+  bar: {
+    width: 5,
+    borderRadius: 3,
+  },
+  listeningHint: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    textAlign: "center",
   },
   transcriptBubble: {
     borderRadius: 10,
@@ -290,6 +384,13 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     textAlign: "center",
     lineHeight: 22,
+  },
+  statusLabel: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    textAlign: "center",
+    marginBottom: 12,
+    letterSpacing: 0.2,
   },
   orbRow: {
     alignItems: "center",
