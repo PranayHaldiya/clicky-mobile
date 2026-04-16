@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { ElevenLabsClient } from "elevenlabs";
 import { Turbopuffer } from "@turbopuffer/turbopuffer";
-import type { Request, Response } from "express";
+import type { Request, Response, NextFunction } from "express";
 import multer from "multer";
 import fs from "fs";
 import OpenAI from "openai";
@@ -9,6 +9,16 @@ import { logger } from "../lib/logger";
 import { upsertSession, saveMessage, getSessionMessages, getSessions } from "../lib/db";
 
 const router = Router();
+
+function requireAuth(req: Request, res: Response, next: NextFunction) {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+  next();
+}
+
+router.use(requireAuth);
 
 const DEFAULT_SCREENSHOT_PROMPT = "Help me understand this screen and what to do next.";
 const NAMESPACE = "clicky-memories";
@@ -468,9 +478,10 @@ async function runAssistantTurn(options: {
   persistedUserContent: string;
   requestContext?: AssistantRequestContext;
   sessionId: string;
+  userId: string;
   userMessage: string;
 }): Promise<AssistantReplyPayload> {
-  await upsertSession(options.sessionId);
+  await upsertSession(options.sessionId, options.userId);
 
   const [memories, rawHistory] = await Promise.all([
     retrieveMemories(options.userMessage, options.sessionId),
@@ -498,9 +509,10 @@ async function runAssistantTurn(options: {
   return replyPayload;
 }
 
-router.get("/sessions", async (_req: Request, res: Response) => {
+router.get("/sessions", async (req: Request, res: Response) => {
   try {
-    const sessions = await getSessions();
+    const userId = req.user!.id;
+    const sessions = await getSessions(userId);
     res.json({ sessions });
   } catch (error) {
     logger.error({ err: error }, "Failed to get sessions");
@@ -560,6 +572,7 @@ router.post("/chat", async (req: Request, res: Response) => {
 
     const replyPayload = await runAssistantTurn({
       sessionId,
+      userId: req.user!.id,
       userMessage,
       persistedUserContent,
       imageDataUrl,

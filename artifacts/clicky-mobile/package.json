@@ -56,7 +56,10 @@
     "zod-validation-error": "^3.4.0"
   },
   "dependencies": {
+    "expo-auth-session": "~7.0.10",
     "expo-av": "^16.0.8",
-    "expo-file-system": "^19.0.21"
+    "expo-crypto": "~15.0.8",
+    "expo-file-system": "^19.0.21",
+    "expo-secure-store": "~15.0.8"
   }
 }

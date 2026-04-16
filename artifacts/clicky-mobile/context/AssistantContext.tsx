@@ -9,7 +9,9 @@ import React, {
 } from "react";
 import { Audio } from "expo-av";
 import * as FileSystem from "expo-file-system/legacy";
+import * as SecureStore from "expo-secure-store";
 import { Alert, Linking, Platform } from "react-native";
+import { AUTH_TOKEN_KEY } from "@/lib/auth";
 
 export type MessageRole = "user" | "assistant" | "system";
 
@@ -125,6 +127,14 @@ function getRequestTimezone(): string | undefined {
 }
 
 export const BASE_URL = `https://${process.env["EXPO_PUBLIC_DOMAIN"] ?? ""}`;
+
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  try {
+    const token = await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+    if (token) return { Authorization: `Bearer ${token}` };
+  } catch {}
+  return {};
+}
 
 export function AssistantProvider({ children }: { children: React.ReactNode }) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -320,7 +330,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
 
         const chatRes = await fetch(`${BASE_URL}/api/assistant/chat`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
           body: JSON.stringify({
             message: trimmed,
             sessionId,
@@ -348,7 +358,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
 
         const ttsRes = await fetch(`${BASE_URL}/api/assistant/tts`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
           body: JSON.stringify({ text: reply }),
         });
 
@@ -489,6 +499,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
 
       const transcribeRes = await fetch(`${BASE_URL}/api/assistant/transcribe`, {
         method: "POST",
+        headers: await getAuthHeaders(),
         body: formData,
       });
 
@@ -637,7 +648,9 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
 
     setStatus("thinking");
     try {
-      const res = await fetch(`${BASE_URL}/api/assistant/sessions/${id}/messages`);
+      const res = await fetch(`${BASE_URL}/api/assistant/sessions/${id}/messages`, {
+        headers: await getAuthHeaders(),
+      });
       if (!res.ok) {
         throw new Error("Failed to load session");
       }
@@ -684,7 +697,9 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
 
   const fetchSessions = useCallback(async (): Promise<Session[]> => {
     try {
-      const res = await fetch(`${BASE_URL}/api/assistant/sessions`);
+      const res = await fetch(`${BASE_URL}/api/assistant/sessions`, {
+        headers: await getAuthHeaders(),
+      });
       if (!res.ok) {
         return [];
       }

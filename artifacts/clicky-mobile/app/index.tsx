@@ -1,5 +1,6 @@
 import React, { useRef, useState } from "react";
 import {
+  ActivityIndicator,
   FlatList,
   Platform,
   StyleSheet,
@@ -12,6 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useColors } from "@/hooks/useColors";
 import { useAssistant } from "@/context/AssistantContext";
+import { useAuth } from "@/lib/auth";
 import { VoiceOrb } from "@/components/VoiceOrb";
 import { MessageBubble } from "@/components/MessageBubble";
 import { AssistantStatusBar } from "@/components/StatusBar";
@@ -22,6 +24,7 @@ import type { Message } from "@/context/AssistantContext";
 export default function AssistantScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { isAuthenticated, isLoading: authLoading, login } = useAuth();
   const {
     messages,
     status,
@@ -36,6 +39,35 @@ export default function AssistantScreen() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const flatListRef = useRef<FlatList<Message>>(null);
 
+  const topPad = Platform.OS === "web" ? 60 : insets.top;
+
+  if (authLoading) {
+    return (
+      <View style={[styles.root, styles.centered, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <View style={[styles.root, styles.centered, { backgroundColor: colors.background }]}>
+        <View style={[styles.headerOrb, { backgroundColor: colors.primary, shadowColor: colors.primary, marginBottom: 24 }]}>
+          <Ionicons name="sparkles" size={32} color="#fff" />
+        </View>
+        <Text style={[styles.loginTitle, { color: colors.foreground }]}>Welcome to Clicky</Text>
+        <Text style={[styles.loginSub, { color: colors.mutedForeground }]}>Sign in to start chatting with your AI assistant</Text>
+        <TouchableOpacity
+          style={[styles.loginBtn, { backgroundColor: colors.primary }]}
+          onPress={() => void login()}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.loginBtnText}>Sign in with Replit</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   const handleOrbPress = () => {
     if (isRecording || status === "listening") {
       stopListening();
@@ -45,7 +77,6 @@ export default function AssistantScreen() {
   };
 
   const isDisabled = status !== "idle";
-  const topPad = Platform.OS === "web" ? 60 : insets.top;
   const bottomPad = Platform.OS === "web" ? 20 : insets.bottom;
 
   return (
@@ -180,4 +211,35 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   inputSection: { paddingTop: 4 },
+  centered: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 32,
+  },
+  loginTitle: {
+    fontSize: 24,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: -0.5,
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  loginSub: {
+    fontSize: 15,
+    fontFamily: "Inter_400Regular",
+    textAlign: "center",
+    marginBottom: 32,
+    lineHeight: 22,
+  },
+  loginBtn: {
+    paddingHorizontal: 32,
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: "center",
+  },
+  loginBtnText: {
+    color: "#fff",
+    fontSize: 16,
+    fontFamily: "Inter_600SemiBold",
+    letterSpacing: -0.2,
+  },
 });

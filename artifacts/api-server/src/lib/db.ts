@@ -25,12 +25,12 @@ export async function query<T = Record<string, unknown>>(
   }
 }
 
-export async function upsertSession(id: string): Promise<void> {
+export async function upsertSession(id: string, userId: string): Promise<void> {
   await query(
-    `INSERT INTO sessions (id, updated_at)
-     VALUES ($1, NOW())
-     ON CONFLICT (id) DO UPDATE SET updated_at = NOW()`,
-    [id]
+    `INSERT INTO sessions (id, user_id, updated_at)
+     VALUES ($1, $2, NOW())
+     ON CONFLICT (id) DO UPDATE SET updated_at = NOW(), user_id = EXCLUDED.user_id`,
+    [id, userId]
   );
 }
 
@@ -59,15 +59,16 @@ export async function getSessionMessages(sessionId: string, limit = 50) {
   );
 }
 
-export async function getSessions(limit = 20) {
+export async function getSessions(userId: string, limit = 20) {
   return query<{ id: string; created_at: string; updated_at: string; message_count: string }>(
     `SELECT s.id, s.created_at, s.updated_at, COUNT(m.id)::text AS message_count
      FROM sessions s
      LEFT JOIN messages m ON m.session_id = s.id
+     WHERE s.user_id = $1
      GROUP BY s.id
      ORDER BY s.updated_at DESC
-     LIMIT $1`,
-    [limit]
+     LIMIT $2`,
+    [userId, limit]
   );
 }
 

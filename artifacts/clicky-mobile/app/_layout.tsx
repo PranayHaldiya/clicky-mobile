@@ -14,12 +14,21 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import * as SecureStore from "expo-secure-store";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AssistantProvider } from "@/context/AssistantContext";
 import { ClickyOverlay } from "@/components/ClickyOverlay";
-import { setBaseUrl } from "@workspace/api-client-react";
+import { AuthProvider, AUTH_TOKEN_KEY } from "@/lib/auth";
+import { setBaseUrl, setAuthTokenGetter } from "@workspace/api-client-react";
 
 setBaseUrl(`https://${process.env["EXPO_PUBLIC_DOMAIN"] ?? ""}`);
+setAuthTokenGetter(async () => {
+  try {
+    return await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+});
 
 SplashScreen.preventAutoHideAsync();
 
@@ -61,9 +70,11 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <GestureHandlerRootView style={{ flex: 1 }}>
             <KeyboardProvider>
-              <AssistantProvider>
-                <RootLayoutNav />
-              </AssistantProvider>
+              <AuthProvider>
+                <AssistantProvider>
+                  <RootLayoutNav />
+                </AssistantProvider>
+              </AuthProvider>
             </KeyboardProvider>
           </GestureHandlerRootView>
         </QueryClientProvider>
