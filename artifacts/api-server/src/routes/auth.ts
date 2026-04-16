@@ -197,10 +197,17 @@ router.post(
     }
 
     const { code, code_verifier, redirect_uri, state, nonce } = parsed.data;
-    const callbackUrl = new URL(redirect_uri);
 
     try {
       const config = await getOidcConfig();
+
+      // Reconstruct the callback URL with all required params.
+      // Replit's OIDC omits the "iss" parameter from the auth response,
+      // so we add it manually to satisfy openid-client v6's validation.
+      const callbackUrl = new URL(redirect_uri);
+      callbackUrl.searchParams.set("code", code);
+      callbackUrl.searchParams.set("state", state);
+      callbackUrl.searchParams.set("iss", ISSUER_URL);
 
       const tokens = await oidc.authorizationCodeGrant(config, callbackUrl, {
         pkceCodeVerifier: code_verifier,

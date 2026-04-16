@@ -1,0 +1,50 @@
+    responseTime: 1
+[09:48:33.896] ERROR (3133): Mobile token exchange error
+    req: {
+      "id": 4,
+      "method": "POST",
+      "url": "/api/mobile-auth/token-exchange"
+    }
+    err: {
+      "type": "ClientError",
+      "message": "invalid response encountered: response parameter \"iss\" (issuer) missing",
+      "stack":
+          ClientError: invalid response encountered
+              at e (/home/runner/workspace/node_modules/.pnpm/openid-client@6.8.3/node_modules/openid-client/src/index.ts:939:10)
+              at errorHandler (/home/runner/workspace/node_modules/.pnpm/openid-client@6.8.3/node_modules/openid-client/src/index.ts:966:15)
+              at authorizationCodeGrant (/home/runner/workspace/node_modules/.pnpm/openid-client@6.8.3/node_modules/openid-client/src/index.ts:3401:11)
+              at <anonymous> (/home/runner/workspace/artifacts/api-server/src/routes/auth.ts:205:33)
+              at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+          caused by: OperationProcessingError: response parameter "iss" (issuer) missing
+              at OPE (/home/runner/workspace/node_modules/.pnpm/oauth4webapi@3.8.5/node_modules/oauth4webapi/src/index.ts:1044:10)
+              at validateAuthResponse (/home/runner/workspace/node_modules/.pnpm/oauth4webapi@3.8.5/node_modules/oauth4webapi/src/index.ts:5582:11)
+              at authorizationCodeGrant (/home/runner/workspace/node_modules/.pnpm/openid-client@6.8.3/node_modules/openid-client/src/index.ts:3394:32)
+              at <anonymous> (/home/runner/workspace/artifacts/api-server/src/routes/auth.ts:205:33)
+              at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      "code": "OAUTH_INVALID_RESPONSE",
+      "name": "ClientError"
+    }
+[09:48:33.897] INFO (3133): request errored
+    req: {
+      "id": 4,
+      "method": "POST",
+      "url": "/api/mobile-auth/token-exchange"
+    }
+    res: {
+      "statusCode": 500
+    }
+    responseTime: 2
+    err: {
+      "type": "Error",
+      "message": "failed with status code 500",
+      "stack":
+          Error: failed with status code 500
+              at onResFinished (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:115:39)
+              at ServerResponse.onResponseComplete (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:178:14)
+              at ServerResponse.emit (node:events:520:35)
+              at onFinish (node:_http_outgoing:1026:10)
+              at callback (node:internal/streams/writable:764:21)
+              at afterWrite (node:internal/streams/writable:708:5)
+              at afterWriteTick (node:internal/streams/writable:694:10)
+              at process.processTicksAndRejections (node:internal/process/task_queues:88:21)
+    }
