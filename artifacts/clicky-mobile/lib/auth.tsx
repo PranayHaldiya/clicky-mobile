@@ -4,9 +4,10 @@ import React, {
   useState,
   useEffect,
   useCallback,
+  useMemo,
   type ReactNode,
 } from "react";
-import { Platform } from "react-native";
+import { Alert, Platform } from "react-native";
 import * as AuthSession from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
 import * as SecureStore from "expo-secure-store";
@@ -86,7 +87,8 @@ function WebAuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     const apiBase = getApiBaseUrl();
-    window.location.href = `${apiBase}/api/logout`;
+    const returnTo = encodeURIComponent(window.location.origin + "/");
+    window.location.href = `${apiBase}/api/logout?returnTo=${returnTo}`;
   }, []);
 
   return (
@@ -111,7 +113,8 @@ function NativeAuthProvider({ children }: { children: ReactNode }) {
   // rejected as "invalid_request" / cause "Failed to download remote update".
   // We use an HTTPS bounce route on our API server; expo-auth-session's
   // in-app browser will detect this URL and close, returning code+state.
-  const redirectUri = `${getApiBaseUrl()}/api/native-callback`;
+  // Memoize so useAuthRequest doesn't churn (which would invalidate PKCE).
+  const redirectUri = useMemo(() => `${getApiBaseUrl()}/api/native-callback`, []);
 
   const [request, response, promptAsync] = AuthSession.useAuthRequest(
     {
@@ -197,12 +200,33 @@ function NativeAuthProvider({ children }: { children: ReactNode }) {
   }, [response, request, redirectUri, fetchUser]);
 
   const login = useCallback(async () => {
+    if (!discovery) {
+      Alert.alert(
+        "Sign-in unavailable",
+        "Couldn't reach the authentication service. Please check your connection and try again.",
+      );
+      return;
+    }
+    if (!request) {
+      Alert.alert("Sign-in not ready", "Please try again in a moment.");
+      return;
+    }
     try {
-      await promptAsync();
+      const result = await promptAsync();
+      if (result.type === "error") {
+        Alert.alert(
+          "Sign-in failed",
+          result.error?.message ?? "Authentication did not complete.",
+        );
+      }
     } catch (err) {
       console.error("Login error:", err);
+      Alert.alert(
+        "Sign-in error",
+        err instanceof Error ? err.message : "Unknown error during sign-in.",
+      );
     }
-  }, [promptAsync]);
+  }, [discovery, request, promptAsync]);
 
   const logout = useCallback(async () => {
     try {

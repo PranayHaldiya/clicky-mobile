@@ -98,6 +98,10 @@ router.get("/native-callback", (_req: Request, res: Response) => {
 });
 
 router.get("/auth/user", (req: Request, res: Response) => {
+  // Disable caching: the auth state changes (login/logout) and a stale 304
+  // would mask the new state on the client.
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+  res.set("Pragma", "no-cache");
   res.json(
     GetCurrentAuthUserResponse.parse({
       user: req.isAuthenticated() ? req.user : null,
@@ -196,14 +200,19 @@ router.get("/logout", async (req: Request, res: Response) => {
   const sid = getSessionId(req);
   await clearSession(res, sid);
 
+  // Redirect back to the app (e.g. the Expo web URL) after logout.
+  const returnTo = getSafeReturnTo(req.query["returnTo"]) || getOrigin(req);
+  const postLogoutRedirect =
+    returnTo.startsWith("http") ? returnTo : `${getOrigin(req)}${returnTo}`;
+
   try {
     const config = await getOidcConfig();
     const endSessionUrl = oidc.buildEndSessionUrl(config, {
-      post_logout_redirect_uri: getOrigin(req),
+      post_logout_redirect_uri: postLogoutRedirect,
     });
     res.redirect(endSessionUrl.href);
   } catch {
-    res.redirect("/");
+    res.redirect(postLogoutRedirect);
   }
 });
 

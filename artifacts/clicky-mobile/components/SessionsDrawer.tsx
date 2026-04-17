@@ -11,8 +11,10 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { useColors } from "@/hooks/useColors";
 import { useAssistant } from "@/context/AssistantContext";
+import { useAuth } from "@/lib/auth";
 import type { Session } from "@/context/AssistantContext";
 
 const DRAWER_WIDTH = Math.min(Dimensions.get("window").width * 0.82, 320);
@@ -79,6 +81,19 @@ function SessionItem({
 export function SessionsDrawer({ visible, onClose }: SessionsDrawerProps) {
   const colors = useColors();
   const { sessionId, loadSession, createNewSession, fetchSessions } = useAssistant();
+  const { user, logout } = useAuth();
+
+  const displayName = [user?.firstName, user?.lastName]
+    .filter(Boolean)
+    .join(" ") || user?.email || "Signed in";
+  const initials = (
+    (user?.firstName?.[0] ?? "") + (user?.lastName?.[0] ?? "")
+  ).toUpperCase() || (user?.email?.[0]?.toUpperCase() ?? "?");
+
+  const handleSignOut = useCallback(async () => {
+    onClose();
+    await logout();
+  }, [logout, onClose]);
 
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(false);
@@ -195,11 +210,45 @@ export function SessionsDrawer({ visible, onClose }: SessionsDrawerProps) {
           )}
         </View>
 
-        {/* Footer hint */}
+        {/* Footer: profile + sign out */}
         <View style={[styles.footer, { borderTopColor: colors.border }]}>
-          <Text style={[styles.footerText, { color: colors.mutedForeground }]}>
-            {Platform.OS === "web" ? "Powered by ElevenLabs" : "Tap a chat to resume it"}
-          </Text>
+          {user ? (
+            <View style={styles.profileRow}>
+              {user.profileImageUrl ? (
+                <Image
+                  source={{ uri: user.profileImageUrl }}
+                  style={styles.avatar}
+                  contentFit="cover"
+                />
+              ) : (
+                <View style={[styles.avatarFallback, { backgroundColor: colors.primary }]}>
+                  <Text style={styles.avatarText}>{initials}</Text>
+                </View>
+              )}
+              <View style={styles.profileText}>
+                <Text style={[styles.profileName, { color: colors.foreground }]} numberOfLines={1}>
+                  {displayName}
+                </Text>
+                {user.email && (
+                  <Text style={[styles.profileEmail, { color: colors.mutedForeground }]} numberOfLines={1}>
+                    {user.email}
+                  </Text>
+                )}
+              </View>
+              <TouchableOpacity
+                onPress={() => void handleSignOut()}
+                activeOpacity={0.7}
+                style={[styles.signOutBtn, { backgroundColor: colors.surfaceHigh }]}
+                accessibilityLabel="Sign out"
+              >
+                <Ionicons name="log-out-outline" size={18} color={colors.mutedForeground} />
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <Text style={[styles.footerText, { color: colors.mutedForeground }]}>
+              {Platform.OS === "web" ? "Powered by ElevenLabs" : "Tap a chat to resume it"}
+            </Text>
+          )}
         </View>
       </Animated.View>
     </>
@@ -336,11 +385,53 @@ const styles = StyleSheet.create({
   },
   footer: {
     borderTopWidth: StyleSheet.hairlineWidth,
-    padding: 16,
+    padding: 14,
   },
   footerText: {
     fontSize: 11,
     fontFamily: "Inter_400Regular",
     textAlign: "center",
+  },
+  profileRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  avatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+  },
+  avatarFallback: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarText: {
+    color: "#fff",
+    fontSize: 13,
+    fontFamily: "Inter_700Bold",
+  },
+  profileText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  profileName: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+  },
+  profileEmail: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    marginTop: 1,
+  },
+  signOutBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
